@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>智能简历优化助手</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto;
+      background: #f7f8fa;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 900px;
+      margin: 30px auto;
+      background: #fff;
+      padding: 24px;
+      border-radius: 8px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.06);
+    }
+    h1 { margin-top: 0; }
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      resize: vertical;
+      padding: 10px;
+      box-sizing: border-box;
+    }
+    .section { margin-bottom: 24px; }
+    .btn {
+      display: inline-block;
+      padding: 10px 16px;
+      background: #1677ff;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .btn:disabled { background: #999; cursor: not-allowed; }
+    .suggestion {
+      border: 1px solid #e5e6eb;
+      padding: 12px;
+      margin-bottom: 12px;
+      border-radius: 8px;
+    }
+    .suggestion h4 { margin: 0 0 6px; }
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      font-size: 12px;
+      border-radius: 6px;
+      background: #f0f0f0;
+      margin-right: 6px;
+    }
+    .P0 { background: #ffccc7; }
+    .P1 { background: #fff1b8; }
+    .P2 { background: #e6f4ff; }
+    .hidden { display: none; }
+    .footer { color: #999; font-size: 13px; margin-top: 30px; text-align: center; }
+
+    /* ✅ Loading overlay */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+    .overlay-card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 18px 20px;
+      width: 320px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      text-align: center;
+    }
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid #ddd;
+      border-top-color: #1677ff;
+      border-radius: 50%;
+      margin: 10px auto 12px;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .hint {
+      color: #666;
+      font-size: 13px;
+      margin-top: 8px;
+      line-height: 1.4;
+    }
+
+    .error {
+      background: #fff2f0;
+      border: 1px solid #ffccc7;
+      color: #a8071a;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ✅ Loading overlay -->
+<div id="loadingOverlay" class="overlay" style="display:none" aria-live="polite" aria-busy="true">
+  <div class="overlay-card">
+    <div style="font-weight: 600;">分析中…</div>
+    <div class="spinner"></div>
+    <div class="hint" id="loadingHint">正在上传简历并解析内容</div>
+  </div>
+</div>
+
+<div class="container">
+  <h1>📄 智能简历优化助手</h1>
+
+  <!-- STEP 1: Upload -->
+  <div class="section">
+    <h3>1️⃣ 上传简历 & 填写职位描述（JD）</h3>
+    <input type="file" id="resumeFile" accept=".pdf,.doc,.docx" />
+    <br /><br />
+    <textarea id="jdText" placeholder="请粘贴职位描述（JD）..."></textarea>
+    <br /><br />
+    <button class="btn" id="btnUploadAnalyze" onclick="uploadResume()">上传并分析</button>
+    <div id="errorBox" class="error hidden"></div>
+  </div>
+
+  <!-- STEP 2: Analysis -->
+  <div class="section hidden" id="analysisSection">
+    <h3>2️⃣ 匹配分析结果</h3>
+    <p><strong>匹配度：</strong><span id="matchScore"></span> % </p>
+
+    <h4>优势</h4>
+    <ul id="strengthList"></ul>
+
+    <h4>不足</h4>
+    <ul id="gapList"></ul>
+
+    <h4>优化建议（可选择）</h4>
+    <div id="suggestionList"></div>
+
+    <button class="btn" id="btnConfirmOptimize" onclick="confirmSuggestions()">确认并生成优化简历</button>
+  </div>
+
+  <!-- STEP 3: Result -->
+  <div class="section hidden" id="resultSection">
+    <h3>3️⃣ 优化完成 🎉</h3>
+    <p>你的简历已根据确认的建议完成优化。</p>
+    <a id="downloadLink" class="btn" href="#" target="_blank">下载优化后的简历（docx）</a>
+  </div>
+
+  <div class="footer">
+    Powered by LangChain + DeepSeek + Flask
+  </div>
+</div>
+
+<script>
+  let resumeId = null;
+
+  // ✅ UI helpers
+  function showLoading(message) {
+    document.getElementById("loadingHint").innerText = message || "处理中…";
+    document.getElementById("loadingOverlay").style.display = "flex";
+  }
+
+  function hideLoading() {
+    document.getElementById("loadingOverlay").style.display = "none";
+  }
+  function setError(msg) {
+    const box = document.getElementById("errorBox");
+    if (!msg) {
+      box.classList.add("hidden");
+      box.innerText = "";
+      return;
+    }
+    box.classList.remove("hidden");
+    box.innerText = msg;
+  }
+
+  // ✅ 1) 清空上一次分析内容
+  function resetPreviousResults() {
+    // 清空 error
+    setError("");
+
+    // 隐藏分析/结果区
+    document.getElementById("analysisSection").classList.add("hidden");
+    document.getElementById("resultSection").classList.add("hidden");
+
+    // 清空分析内容
+    document.getElementById("matchScore").innerText = "";
+    document.getElementById("strengthList").innerHTML = "";
+    document.getElementById("gapList").innerHTML = "";
+    document.getElementById("suggestionList").innerHTML = "";
+
+    // 清空下载链接
+    const link = document.getElementById("downloadLink");
+    link.href = "#";
+  }
+
+  function setButtonsDisabled(disabled) {
+    document.getElementById("btnUploadAnalyze").disabled = disabled;
+    document.getElementById("btnConfirmOptimize").disabled = disabled;
+  }
+
+  // ✅ fetch wrapper: 统一错误处理
+  async function fetchJSON(url, options) {
+    const resp = await fetch(url, options);
+    let data = null;
+    try { data = await resp.json(); } catch(e) {}
+    if (!resp.ok) {
+      const msg = (data && (data.error || data.detail)) ? (data.error + (data.detail ? (": " + data.detail) : "")) : `请求失败: ${resp.status}`;
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  async function uploadResume() {
+    // ✅ 清空旧结果（你的需求 1）
+    resetPreviousResults();
+
+    const fileInput = document.getElementById("resumeFile");
+    const jdText = document.getElementById("jdText").value.trim();
+
+    if (!fileInput.files.length || !jdText) {
+      setError("请上传简历文件并填写 JD。");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("resume_file", fileInput.files[0]);
+    formData.append("jd_text", jdText);
+
+    setButtonsDisabled(true);
+    showLoading("正在上传简历并解析内容…"); // ✅ 你的需求 2
+
+    try {
+      const uploadData = await fetchJSON("/upload", {
+        method: "POST",
+        body: formData
+      });
+
+      resumeId = uploadData.resume_id;
+
+      showLoading("正在分析简历与 JD 的匹配度…");
+      await analyzeResume();
+
+    } catch (err) {
+      setError(err.message || "上传/分析失败，请重试。");
+    } finally {
+      hideLoading();
+      setButtonsDisabled(false);
+    }
+  }
+
+  async function analyzeResume() {
+    const data = await fetchJSON("/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resume_id: resumeId })
+    });
+
+    // 展示分析区
+    document.getElementById("analysisSection").classList.remove("hidden");
+
+    document.getElementById("matchScore").innerText = data.overall_score ?? "";
+
+    renderList("strengthList", data.strengths || []);
+    renderList("gapList", data.gaps || []);
+    renderSuggestions(data.suggestions || []);
+  }
+
+  function renderList(id, items) {
+    const ul = document.getElementById(id);
+    ul.innerHTML = "";
+    items.forEach(t => {
+      const li = document.createElement("li");
+      li.innerText = t;
+      ul.appendChild(li);
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function renderSuggestions(suggestions) {
+    const container = document.getElementById("suggestionList");
+    container.innerHTML = "";
+
+    suggestions.forEach(s => {
+      const div = document.createElement("div");
+      div.className = "suggestion";
+
+      const issue = escapeHtml(s.issue || "");
+      const rec = escapeHtml(s.recommendation || "");
+      const ev = s.evidence ? `<p><strong>依据：</strong>${escapeHtml(s.evidence)}</p>` : "";
+
+      div.innerHTML = `
+        <label>
+          <input type="checkbox" value="${escapeHtml(s.id)}" checked />
+          <strong>${issue}</strong>
+        </label>
+        <div style="margin-top:6px">
+          <span class="tag ${escapeHtml(s.priority || "P2")}">${escapeHtml(s.priority || "P2")}</span>
+          <span class="tag">${escapeHtml(s.target_section || "")}</span>
+        </div>
+        <p><strong>建议：</strong>${rec}</p>
+        ${ev}
+      `;
+      container.appendChild(div);
+    });
+  }
+
+  async function confirmSuggestions() {
+    setError("");
+
+    const checked = Array.from(
+      document.querySelectorAll("#suggestionList input:checked")
+    ).map(i => i.value);
+
+    if (!checked.length) {
+      setError("请至少选择一条优化建议。");
+      return;
+    }
+
+    setButtonsDisabled(true);
+    showLoading("正在生成优化后的简历文件…");
+
+    try {
+      await fetchJSON("/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resume_id: resumeId,
+          confirmed_suggestion_ids: checked
+        })
+      });
+
+      const result = await fetchJSON("/optimize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resume_id: resumeId })
+      });
+
+      document.getElementById("resultSection").classList.remove("hidden");
+      const link = document.getElementById("downloadLink");
+      link.href = result.download_url;
+
+    } catch (err) {
+      setError(err.message || "生成失败，请重试。");
+    } finally {
+      hideLoading();
+      setButtonsDisabled(false);
+    }
+  }
+</script>
+
+</body>
+</html>

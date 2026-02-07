@@ -1,0 +1,11 @@
+version: "3.9"
+services:
+  app:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - DEEPSEEK_API_KEY=sk-40e97e965deb40ed9925c3017fe660cf
+    volumes:
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
