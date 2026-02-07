@@ -1,0 +1,15 @@
+# Local env files
+.env
+
+# Uploads / outputs
+/uploads/
+/outputs/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# OS
+.DS_Store
